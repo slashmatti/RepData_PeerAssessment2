@@ -1,0 +1,96 @@
+---
+title: "Exploring the NOAA Storm Database"
+author: "Matti Salimi"
+date: "Sunday, April 26, 2015"
+output: html_document
+---
+
+## Synopsis
+This report aims to describe which storm-related event type has the biggest impact in harm toward human population and the largest economic consequences in the US. In terms of human life and injuries __tornado__ has the biggest impact. When it comes to economic damage, it is again __tornado__.
+
+## Data Processing
+Data is downloaded and loaded into R. The full set contains 902297 observations with 37 variables, but not all are needed for the purpose of this analysis.
+
+1. To perform the analysis the following variables are filtered: EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG and CROPDMGEXP.
+2. Further filtering is performed by subsetting observations where FATALITIES, INJURIES, PROPDMG and CROPDMG is more than 0, and `EVTYPE=="?"` records are removed.
+3. EVTYPE, PROPDMGEXP and CROPDMGEXP are converted to upper case.
+4. Characters in PROPDMGEXP and CROPDMGEXP are mapped as follows:
+
+* B = 100,000,000
+* M = 1,000,000
+* K = 1,000
+* H = 100
+* 2 to 7 = 10 to 1,000,000, corresponding to the number of digits
+* all others = 1
+PROPDMGEXP and CROPDMGEXP are then converted to numeric class so thatPROPDMG and CROPDMG can be multiplied to get the actual value.
+5. Finally, for each type of weather event the sums of human harm and economic damage is aggregated
+
+EVTYPES have been used raw as-is. It is beyond the scope of this analysis, which is to showcase reproducibility, to clean up and reduce this variable to be consistent with the 48 types which as described in the National Weather Service Instruction document.
+
+```{r, cache=TRUE}
+
+fileurl <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+bz2file <- "repdata-data-StormData.csv.bz2"
+if(!file.exists(bz2file)) {download.file(fileurl, bz2file)}
+
+# Step 1
+data <- read.csv(bzfile(bz2file), stringsAsFactors=FALSE)[,-c(1:7,9:22,29:37)]
+
+# Step 2
+data <- subset(data, FATALITIES > 0 | INJURIES > 0 | PROPDMG > 0 | CROPDMG > 0)
+data <- subset(data, !EVTYPE=="?")
+
+# Step 3
+data$EVTYPE <- toupper(data$EVTYPE); data$PROPDMGEXP <- toupper(data$PROPDMGEXP)
+data$CROPDMGEXP <- toupper(data$CROPDMGEXP)
+
+# Step 4
+data$PROPDMGEXP <- sapply(data$PROPDMGEXP, function(x) 
+    { if(x=="B") x<-"100000000" 
+        else if(x=="M"|x=="7") x<-"1000000" 
+            else if(x=="6") x<-"100000" 
+                else if(x=="5") x<-"10000" 
+                    else if(x=="K"|x=="4") x<-"1000" 
+                        else if(x=="H"|x=="3") x<-"100" 
+                            else if(x=="2") x<-"10" 
+      else x<-"1"})
+data$CROPDMGEXP <- sapply(data$CROPDMGEXP, function(x) 
+    { if(x=="B") x<-"100000000" 
+        else if(x=="M"|x=="7") x<-"1000000" 
+            else if(x=="6") x<-"100000" 
+                else if(x=="5") x<-"10000" 
+                    else if(x=="K"|x=="4") x<-"1000" 
+                        else if(x=="H"|x=="3") x<-"100" 
+                            else if(x=="2") x<-"10" 
+      else x<-"1"})
+
+data$PROPDMGEXP <- as.numeric(data$PROPDMGEXP)
+data$PROPDMG <- data$PROPDMG * data$PROPDMGEXP
+data$CROPDMGEXP <- as.numeric(data$CROPDMGEXP)
+data$CROPDMG <- data$CROPDMG * data$CROPDMGEXP
+
+# Step 5
+aggr <- aggregate(.~EVTYPE, data, sum)
+```
+
+## Results
+The storm-related type of event that is most harmful toward human populations in the US is __tornado__, followed by a far second in __excessive heat__. Below are top 10 lists of event types most harmful toward humans, for fatalities and injuries respectively. 
+
+```{r}
+f <- aggr[order(aggr$FATALITIES, decreasing=TRUE),]
+i <- aggr[order(aggr$INJURIES, decreasing=TRUE),]
+head(f, 10)[,1:3]
+head(i, 10)[,1:3]
+```
+
+The costs of damage to properties and crops are both combined to measure total loss, in a summation. The graph below displays the top 10 storm events with greatest economical consequences. __Tornado__ is again the most devastating storm-related event to economy, followed by __flood__.
+
+```{r}
+aggr[,"TOTALDMG"] <- aggr[,"PROPDMG"] + aggr[,"CROPDMG"]
+aggr <- aggr[order(aggr$TOTALDMG, decreasing=TRUE),]
+par(mar=c(4,9,2,2))
+barplot(aggr[10:1,"TOTALDMG"]/1000000000, names.arg=aggr[10:1,"EVTYPE"], 
+        ylab="", xlab="Total Damage in Billions", horiz=T, cex.names=0.7, 
+        las=1, xlim=c(0,60))
+title(ylab="Storm Events", line=8)
+```
